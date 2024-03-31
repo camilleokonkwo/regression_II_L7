@@ -1,0 +1,124 @@
+---
+title: "Homework 7"
+author: "Camille Okonkwo"
+date: "2024-03-30"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+hwdata3 = read_csv("data/hwdata3.csv")
+```
+
+The `hwdata3.csv` contains data on 1959 patients hospitalized subsequent to undergoing either the CABG or PTCA cardiovascular procedure. 
+
+The variables included are:
+
+**procedure**:    1 = CABG, 0 = PTCA
+  
+**gender**:       1=male,   0 = female
+  
+**age**:          age of patient
+  
+**los**:          hospital length of stay(days)
+  
+**type**:         1 = emergency/urgent, 0 = elective
+  
+
+1.	Fit a Poisson regression model with hospital length of stay as the outcome and procedure, gender, age, and type as covariates (model 1). Write down the model. Is overdispersion a potential problem for this Poisson model?
+```{r}
+# Fit the Poisson regression model
+p.model <- glm(los ~ procedure + gender + age + type, data = hwdata3, family = "poisson")
+
+summary(p.model)
+
+# goodness of fit
+pchisq(p.model$deviance, p.model$df.residual, lower.tail=F)
+
+# deviance
+p.model$deviance
+p.model$df.residual
+sum(resid(p.model,type="pearson")^2)
+
+ratio = (p.model$deviance) / p.model$df.residual
+ratio
+```
+The model formula **los ~ procedure + gender + age + type**. Since the ratio of deviance to df is 1.776, which is greater than 1, this suggests potential overdispersion in the model.
+
+2.	Refit model 1 with the scale parameter being equal to Pearson chi-square divided by residual DF. Estimate the length of stay rate ratio between patients undergoing CABG and PTCA procedures. Provide the 95% confidence interval and interpret. 
+```{r}
+p.model2 <- glm(los ~ procedure + gender + age + type, data = hwdata3, family = "quasipoisson")
+
+summary(p.model2)
+
+coef_procedure <- coef(p.model2)["procedure"]
+rate_ratio <- exp(coef_procedure)
+conf_interval <- exp(confint(p.model2)["procedure", ])
+
+```
+
+3.	Use the fitted model in part (2), calculate the expected days of hospital stay for male patients aged 68 who underwent CABG procedure and stayed in an elective type.
+```{r}
+# Define the coefficients from the fitted model
+intercept <- 0.55471
+coef_procedure <- 1.12186
+coef_gender <- -0.10289
+coef_age <- 0.01025
+coef_type <- 0.18992
+
+# Define the values for the specific patient
+procedure <- 1  # CABG procedure
+gender <- 1  # Male
+age <- 68
+type <- 0  # Elective type
+
+# Calculate the linear predictor
+linear_predictor <- intercept + coef_procedure * procedure +
+                    coef_gender * gender + coef_age * age + coef_type * type
+
+# Calculate the expected number of days of hospital stay
+expected_stay <- exp(linear_predictor)
+expected_stay
+
+```
+
+4.	Refit model 1 using negative binomial regression. Provide a formal test to decide whether a negative binomial model is needed for this data than a Poisson regression model. 
+```{r}
+library(MASS)
+# Fit the negative binomial regression model
+nb.model = glm.nb(los ~ procedure + gender + age + type, data = hwdata3)
+
+summary(nb.model)
+
+test.stat = nb.model$theta/nb.model$SE.theta
+
+p_value = 1-pnorm(test.stat)
+```
+At the 5% level of significance, (and a p-value of 0 which is less than 0.05), we reject the null hypothesis that the Poisson model is sufficient, indicating that a negative binomial model is preferred. This result suggests that the negative binomial model provides a significantly better fit for the data compared to the Poisson model.
+
+5.	Use the negative binomial model to estimate the length of stay rate ratio between patients undergoing CABG and PTCA procedures and provide 95% confidence interval. Is the conclusion different from the Poisson model in part (2)?
+```{r}
+# Extract coefficients from the fitted negative binomial model
+coef_nb <- coef(nb.model)
+
+# Coefficient for procedure (CABG vs. PTCA)
+coef_procedure_nb <- coef_nb["procedure"]
+
+# Standard error of the coefficient for procedure
+se_procedure_nb <- summary(nb.model)$coefficients["procedure", "Std. Error"]
+
+# Calculate the rate ratio
+rate_ratio_nb <- exp(coef_procedure_nb)
+
+# Calculate the 95% confidence interval
+lower_limit_nb <- exp(coef_procedure_nb - 1.96 * se_procedure_nb)
+upper_limit_nb <- exp(coef_procedure_nb + 1.96 * se_procedure_nb)
+
+# Print the rate ratio and confidence interval
+print(rate_ratio_nb)
+print(c(lower_limit_nb, upper_limit_nb))
+```
+
+The results from binomial model and the Poisson model are very similar. Since the 95% confidence intervals of the rate ratios from the negative binomial model and the Poisson model overlap significantly, there may not be a big difference in the estimated rate ratios between the two models.
